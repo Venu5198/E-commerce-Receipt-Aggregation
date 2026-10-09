@@ -383,6 +383,82 @@ docker exec -it ecommerce_receipts_api python scripts/seed_data.py
 
 ---
 
+## Docker Concepts & Container Architecture Deep-Dive
+
+### 1. Multi-Stage Builds (Minimal Production Image)
+* **Implementation**: [Dockerfile](file:///c:/devops/E-commerce%20Receipt%20Aggregation%20API/Dockerfile) uses `AS builder` and `AS runtime`.
+* **Why it matters**: Compilers, build utilities (`gcc`, `libffi-dev`), and pip cache directories are isolated in the builder stage. The final runtime container copies only the compiled dependencies (`/root/.local`), slashing image attack surface and deployment footprint.
+
+### 2. Container Security & Non-Root Execution
+* **Implementation**:
+  ```dockerfile
+  RUN addgroup --system --gid 1001 appgroup && \
+      adduser --system --uid 1001 --ingroup appgroup --home /home/appuser appuser
+  USER appuser
+  ```
+* **Why it matters**: In the event of a zero-day remote code execution vulnerability, an attacker is locked inside unprivileged user context (`appuser:1001`) and cannot modify system binaries or escape to host root.
+
+### 3. Native Container Healthchecks (`HEALTHCHECK`)
+* **Implementation**:
+  ```dockerfile
+  HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+      CMD curl -f http://localhost:8000/health || exit 1
+  ```
+* **Why it matters**: Detects hung event loops or crashed database connections. Docker and container orchestrators (Kubernetes, AWS ECS) use this signal to restart unhealthy instances automatically.
+
+### 4. Deterministic Service Orchestration (`condition: service_healthy`)
+* **Implementation**: In [docker-compose.yml](file:///c:/devops/E-commerce%20Receipt%20Aggregation%20API/docker-compose.yml), `api` explicitly declares:
+  ```yaml
+  depends_on:
+    mongo:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  ```
+* **Why it matters**: Solves the classic startup race condition where the web server boots faster than the database and crashes with connection timeouts.
+
+### 5. Storage Architecture (Named Persistent Volumes vs Bind Mounts)
+* **Named Volumes** (`receipt_mongo_data`, `receipt_redis_data`, `receipt_rabbitmq_data`): Managed by Docker daemon; persistent across container restarts and rebuilds.
+* **Bind Mounts** (`.:/app`): Maps local workstation directory directly into container for instantaneous live code reloading.
+
+### 6. User-Defined Bridge Networking & DNS Discovery
+* **Implementation**: Custom `receipt_network` bridge driver.
+* **Why it matters**: Provides automatic internal DNS name resolution (`mongo:27017`, `redis:6379`, `rabbitmq:5672`) while isolating internal inter-service traffic from the external host network.
+
+### 7. Log Rotation & Disk Protection
+* **Implementation**:
+  ```yaml
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+  ```
+* **Why it matters**: Prevents runaway logging from consuming 100% of server storage and crashing the host OS.
+
+### 8. Essential Docker Production Commands
+
+```powershell
+# View running containers and live healthcheck statuses
+docker-compose ps
+
+# Real-time resource usage (CPU %, Memory %, Network I/O)
+docker stats
+
+# Stream logs with timestamps
+docker-compose logs -f --tail=100 api
+
+# Execute interactive shell inside non-root container
+docker exec -it ecommerce_receipts_api sh
+
+# Inspect container health history
+docker inspect --format='{{json .State.Health}}' ecommerce_receipts_api
+```
+
+---
+
 ## Git Repository & Deployment
 
 ```bash

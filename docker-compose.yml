@@ -2,29 +2,51 @@ services:
   mongo:
     image: mongo:7.0
     container_name: ecommerce_receipts_mongo
-    restart: always
+    restart: unless-stopped
     ports:
       - "27018:27017"
     volumes:
       - mongo_data:/data/db
     networks:
       - receipt_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7.2-alpine
     container_name: ecommerce_receipts_redis
-    restart: always
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
       - receipt_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: ecommerce_receipts_rabbitmq
-    restart: always
+    restart: unless-stopped
     ports:
       - "5672:5672"     # AMQP Protocol
       - "15672:15672"   # Management Web UI
@@ -32,13 +54,24 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - receipt_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: ecommerce_receipts_api
-    restart: always
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
@@ -53,17 +86,35 @@ services:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
       - USE_RABBITMQ=true
     depends_on:
-      - mongo
-      - redis
-      - rabbitmq
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     networks:
       - receipt_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   receipt_network:
+    name: receipt_network
     driver: bridge
 
 volumes:
   mongo_data:
+    name: receipt_mongo_data
   redis_data:
+    name: receipt_redis_data
   rabbitmq_data:
+    name: receipt_rabbitmq_data
