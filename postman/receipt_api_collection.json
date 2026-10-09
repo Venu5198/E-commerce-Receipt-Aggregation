@@ -1,0 +1,144 @@
+{
+  "info": {
+    "_postman_id": "8f683419-7925-4c07-b3b4-f6cf0f4e5678",
+    "name": "E-commerce Receipt Aggregation API",
+    "description": "Postman test collection for MongoDB-backed FastAPI Receipt Aggregator with batch product resolution and edge case validation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "1. Complete Aggregated Receipt (ORD-5001)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/orders/ORD-5001/receipt",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "orders", "ORD-5001", "receipt"]
+        },
+        "description": "Fetches standard order with Profile, Products (batch query), Order, and Invoice data."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Multi-Item Order Receipt (ORD-5002)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/orders/ORD-5002/receipt",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "orders", "ORD-5002", "receipt"]
+        },
+        "description": "Multi-product receipt with PayPal invoice payment."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Edge Case - Missing Customer Profile (ORD-5003)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/orders/ORD-5003/receipt",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "orders", "ORD-5003", "receipt"]
+        },
+        "description": "Graceful fallback when customer profile is not present in profiles collection."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Edge Case - Missing Invoice (ORD-5004)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/orders/ORD-5004/receipt",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "orders", "ORD-5004", "receipt"]
+        },
+        "description": "Graceful fallback when invoice document is not found (status INVOICE_PENDING)."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Edge Case - Missing/Legacy Product in Catalog (ORD-5005)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/orders/ORD-5005/receipt",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "orders", "ORD-5005", "receipt"]
+        },
+        "description": "Graceful fallback when an item in the order has no matching document in products."
+      },
+      "response": []
+    },
+    {
+      "name": "6. Error Case - Order Not Found (404)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/orders/ORD-NONEXISTENT/receipt",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "orders", "ORD-NONEXISTENT", "receipt"]
+        },
+        "description": "Returns HTTP 404 when the requested order ID does not exist in orders collection."
+      },
+      "response": []
+    }
+  ]
+}
