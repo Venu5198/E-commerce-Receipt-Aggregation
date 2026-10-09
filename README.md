@@ -284,40 +284,100 @@ Interactive Swagger docs: [http://localhost:8000/docs](http://localhost:8000/doc
 
 ## Distributed Scaling & Event-Driven Architecture
 
-### 1. Distributed Caching (Redis)
-* **Configuration**: `REDIS_URL=redis://redis:6379/0`, `USE_REDIS_CACHE=true`
-* **Architecture**: Hybrid caching layer in [app/services/cache_service.py](file:///c:/devops/E-commerce%20Receipt%20Aggregation%20API/app/services/cache_service.py) automatically routes queries through Redis when connected, with transparent fallback to in-memory caching if Redis is offline.
-* **Invalidation**: Atomic prefix invalidation (`SCAN` + `DEL`) clears cached receipts on entity updates.
+### System Scaling Topology
 
-### 2. Message Broker & Event Streaming (RabbitMQ)
-* **Configuration**: `RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/`, `USE_RABBITMQ=true`
-* **Broker Service**: [app/services/event_bus.py](file:///c:/devops/E-commerce%20Receipt%20Aggregation%20API/app/services/event_bus.py) uses `aio-pika` to publish events onto the `ecommerce.events` durable topic exchange:
-  - `receipt.dispatched`: Broadcast when receipt emails and audit logs are queued.
-  - `order.status_updated`: Broadcast when order states change.
-* **Management UI**: Access RabbitMQ dashboard at [http://localhost:15672](http://localhost:15672) (User: `guest` / Pass: `guest`).
+```
+                         ┌───────────────────────────┐
+                         │   Load Balancer (Nginx)   │
+                         └─────────────┬─────────────┘
+                                       │
+            ┌──────────────────────────┼──────────────────────────┐
+            ▼                          ▼                          ▼
+   ┌─────────────────┐        ┌─────────────────┐        ┌─────────────────┐
+   │ API Replica 1   │        │ API Replica 2   │        │ API Replica 3   │
+   │ (FastAPI Async) │        │ (FastAPI Async) │        │ (FastAPI Async) │
+   └────────┬────────┘        └────────┬────────┘        └────────┬────────┘
+            │                          │                          │
+            ├──────────────────────────┼──────────────────────────┤
+            ▼                          ▼                          ▼
+ ┌──────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
+ │  Redis 7.2 Cluster   │   │  RabbitMQ 3.13 AMQP  │   │   MongoDB Replica    │
+ │ (Distributed Cache)  │   │   (Event Streaming)  │   │  (Persistent Store)  │
+ └──────────────────────┘   └──────────┬───────────┘   └──────────────────────┘
+                                       │
+                            ┌──────────┴──────────┐
+                            ▼                     ▼
+                 ┌───────────────────┐ ┌───────────────────┐
+                 │ Email Worker Pods │ │ Audit Log Workers │
+                 └───────────────────┘ └───────────────────┘
+```
 
-### 3. CI/CD Automation Pipeline (GitHub Actions)
-* **Workflow**: [`.github/workflows/ci.yml`](file:///c:/devops/E-commerce%20Receipt%20Aggregation%20API/.github/workflows/ci.yml)
-* **Matrix Testing**: Pytest coverage on Python 3.11 and 3.12 with live containerized Redis & RabbitMQ service instances.
-* **Container Build**: Automated Docker Buildx step ensures no image regressions.
+---
+
+### Core Principles Enabling Horizontal Scaling
+
+1. **Stateless API Replicas**:
+   - Authenticated with stateless HMAC-SHA256 JWT tokens. No server-side session stickiness is needed; any API replica can handle any user request seamlessly.
+2. **Distributed Shared Cache (Redis)**:
+   - Config: `REDIS_URL=redis://redis:6379/0`, `USE_REDIS_CACHE=true`
+   - Cache hits bypass MongoDB completely and return in `< 1ms`.
+   - All API instances read and invalidate from the same shared Redis cache without in-memory drift.
+3. **Asynchronous Decoupling (RabbitMQ Broker)**:
+   - Config: `RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/`, `USE_RABBITMQ=true`
+   - Non-blocking publishing onto the durable `ecommerce.events` topic exchange.
+   - Heavy background jobs (receipt dispatch, email generation, accounting exports) are processed asynchronously without blocking client HTTP request threads.
+4. **Resilience & Graceful Fallback**:
+   - If Redis or RabbitMQ goes temporarily offline, the API automatically falls back to in-memory caching and persistent MongoDB logging without dropping traffic.
+
+---
+
+### How to Scale Services Live
+
+#### 1. Spin up the Full Stack
+```powershell
+docker-compose up -d --build
+```
+
+#### 2. Scale API Replicas Horizontally
+Run 3 concurrent, load-balanced API container instances:
+```powershell
+docker-compose up -d --scale api=3
+```
+
+#### 3. Inspect Live Distributed Cache (Redis)
+Connect directly to Redis CLI inside the container:
+```powershell
+docker exec -it ecommerce_receipts_redis redis-cli
+```
+Helpful Redis commands:
+```redis
+KEYS *                    # View all active cached receipt keys
+GET receipt:ORD-5001      # View serialized cached receipt payload
+TTL receipt:ORD-5001      # View remaining seconds before key expiration
+MONITOR                   # Stream all live cache reads and writes in real-time
+```
+
+#### 4. Monitor Message Streaming (RabbitMQ Web UI)
+1. Open **[http://localhost:15672](http://localhost:15672)** in your browser.
+2. Login credentials:
+   - **Username**: `guest`
+   - **Password**: `guest`
+3. Click the **Exchanges** tab to inspect `ecommerce.events`.
+4. Monitor message publish rates, message acknowledgments, and worker queues in real-time.
 
 ---
 
 ## Running with Docker (Full Microservices Stack)
 
-Spin up all four containers (API, MongoDB, Redis, RabbitMQ):
-```bash
-docker-compose up --build
-```
+| Container Name | Service | Ports | Description |
+|---|---|---|---|
+| `ecommerce_receipts_api` | FastAPI App | `8000:8000` | REST API, OpenAPI docs at `/docs` |
+| `ecommerce_receipts_mongo` | MongoDB 7.0 | `27018:27017` | Persistent primary database |
+| `ecommerce_receipts_redis` | Redis 7.2 | `6379:6379` | Distributed sub-millisecond cache |
+| `ecommerce_receipts_rabbitmq` | RabbitMQ 3.13 | `5672`, `15672` | AMQP broker + Management Web Dashboard |
 
-Services exposed:
-- **FastAPI Application**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **MongoDB**: `localhost:27018`
-- **Redis**: `localhost:6379`
-- **RabbitMQ Management Dashboard**: [http://localhost:15672](http://localhost:15672) (guest / guest)
-
-Seed the Docker MongoDB database:
-```bash
+Seed the Docker database with realistic e-commerce data:
+```powershell
 docker exec -it ecommerce_receipts_api python scripts/seed_data.py
 ```
 
