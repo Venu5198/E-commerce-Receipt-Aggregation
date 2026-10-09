@@ -385,6 +385,8 @@ docker exec -it ecommerce_receipts_api python scripts/seed_data.py
 
 ## Docker Concepts & Container Architecture Deep-Dive
 
+> 📖 **Full 24-Topic Reference**: See the comprehensive line-by-line guide in [`docs/DOCKER_GUIDE.md`](file:///c:/devops/E-commerce%20Receipt%20Aggregation%20API/docs/DOCKER_GUIDE.md) covering everything from installation and port mapping to interview questions.
+
 ### 1. Multi-Stage Builds (Minimal Production Image)
 * **Implementation**: [Dockerfile](file:///c:/devops/E-commerce%20Receipt%20Aggregation%20API/Dockerfile) uses `AS builder` and `AS runtime`.
 * **Why it matters**: Compilers, build utilities (`gcc`, `libffi-dev`), and pip cache directories are isolated in the builder stage. The final runtime container copies only the compiled dependencies (`/root/.local`), slashing image attack surface and deployment footprint.
